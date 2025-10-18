@@ -1,0 +1,29 @@
+{
+  "name": "api",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "echo \"(añadiremos ESLint en el siguiente paso)\""
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "es2022",
+  "devDependencies": {
+    "@types/node": "^24.8.1",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.1.0",
+    "dotenv": "^17.2.3",
+    "fastify": "^5.6.1",
+    "mongoose": "^8.19.1",
+    "zod": "^4.1.12"
+  }
+}
