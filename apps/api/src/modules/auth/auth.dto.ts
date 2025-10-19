@@ -22,6 +22,12 @@ export const MeOutputSchema = z.object({
   user: AuthUserSchema,
 });
 
+export const ChangePasswordInputSchema = z.object({
+  currentPassword: z.string().min(8),
+  newPassword: z.string().min(8),
+});
+
+export type ChangePasswordInput = z.infer<typeof ChangePasswordInputSchema>;
 export type RegisterInput = z.infer<typeof RegisterInputSchema>;
 export type LoginInput = z.infer<typeof LoginInputSchema>;
 export type AuthUser = z.infer<typeof AuthUserSchema>;

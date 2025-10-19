@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { registerHandler, loginHandler, meHandler, logoutHandler, refreshHandler } from './auth.controller';
+import { registerHandler, loginHandler, meHandler, logoutHandler, refreshHandler, changePasswordHandler } from './auth.controller';
 import { requireAuth } from '../../middlewares/auth';
 
 export async function authRoutes(app: FastifyInstance) {
@@ -9,4 +9,5 @@ export async function authRoutes(app: FastifyInstance) {
   app.post('/auth/refresh', refreshHandler);
 
   app.get('/auth/me', { preHandler: [requireAuth()] }, meHandler);
+  app.post('/auth/change-password', { preHandler: [requireAuth()] }, changePasswordHandler);
 }
