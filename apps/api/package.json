@@ -8,22 +8,31 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "echo \"(añadiremos ESLint en el siguiente paso)\""
+    "lint": "eslint . --max-warnings=0",
+    "test": "vitest run"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "es2022",
   "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^24.8.1",
     "tsx": "^4.20.6",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
   },
   "dependencies": {
+    "@fastify/cookie": "^11.0.2",
     "@fastify/cors": "^11.1.0",
+    "@fastify/helmet": "^13.0.2",
+    "@fastify/rate-limit": "^10.3.0",
+    "argon2": "^0.44.0",
     "dotenv": "^17.2.3",
     "fastify": "^5.6.1",
+    "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.19.1",
+    "nanoid": "^3.3.11",
     "zod": "^4.1.12"
   }
 }

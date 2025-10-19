@@ -47,5 +47,5 @@
     "moduleResolution": "node",
     "forceConsistentCasingInFileNames": true,
   },
-  "include": ["src", "../web/src/lib"]
+  "include": ["src"]
 }

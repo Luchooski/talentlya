@@ -1,30 +1,58 @@
 import { useQuery } from '@tanstack/react-query';
+import LoginForm from './features/auth/LoginForm';
 
 const API = (import.meta.env.VITE_API_URL as string) || 'http://localhost:4000';
 
-type Health = { status: string; uptime: number };
+type Me = { user: { _id: string; email: string; role: 'admin' | 'user' } };
 
 export default function App() {
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ['health'],
-    queryFn: async (): Promise<Health> => {
-      const res = await fetch(`${API}/api/v1/health`, { credentials: 'include' });
-      if (!res.ok) throw new Error('Network error');
+  const { data: me, refetch, isFetching } = useQuery<Me>({
+    queryKey: ['me'],
+    queryFn: async () => {
+      const res = await fetch(`${API}/api/v1/auth/me`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Not logged');
       return res.json();
     },
-    staleTime: 30_000,
+    retry: false,
   });
 
+  async function logout() {
+    await fetch(`${API}/api/v1/auth/logout`, { method: 'POST', credentials: 'include' });
+    await refetch();
+  }
+
   return (
-    <div className="flex w-screen h-screen items-center justify-center bg-gray-100 dark:bg-[#0f172a] text-gray-900 dark:text-gray-100">
-      <div className="text-center space-y-4">
+    <div className="min-h-screen w-screen items-center justify-center bg-gray-100 dark:bg-[#0f172a] text-gray-900 dark:text-gray-100 p-6">
+      <div className="max-w-2xl mx-auto space-y-6">
         <h1 className="text-3xl font-bold">Talentlya</h1>
-        {isLoading && <p className="text-lg">Cargando estado…</p>}
-        {isError && <p className="text-lg">Error al conectar con la API</p>}
-        {data && (
-          <p className="text-lg">
-            Estado del servidor: <b>{data.status}</b> — Uptime: {Math.floor(data.uptime)}s
-          </p>
+
+        {!me ? (
+          <>
+            <p className="opacity-80">Iniciá sesión para continuar.</p>
+            <LoginForm />
+          </>
+        ) : (
+          <div className="space-y-3">
+            <p>
+              Sesión: <b>{me.user.email}</b> ({me.user.role})
+            </p>
+            <div className="flex gap-3">
+              <button
+                className="rounded bg-black text-white dark:bg-white dark:text-black py-2 px-3"
+                onClick={logout}
+                disabled={isFetching}
+              >
+                Cerrar sesión
+              </button>
+              <button
+                className="rounded border py-2 px-3"
+                onClick={() => refetch()}
+                disabled={isFetching}
+              >
+                Refrescar estado
+              </button>
+            </div>
+          </div>
         )}
       </div>
     </div>
