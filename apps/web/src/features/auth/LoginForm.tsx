@@ -1,7 +1,6 @@
 import { type FormEvent, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-
-const API = (import.meta.env.VITE_API_URL as string) || 'http://localhost:4000';
+import { apiFetch } from '../../lib/api';
 
 export default function LoginForm() {
   const qc = useQueryClient();
@@ -12,19 +11,17 @@ export default function LoginForm() {
   async function submit(e: FormEvent) {
     e.preventDefault();
     setMsg(null);
-    const res = await fetch(`${API}/api/v1/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ email, password }),
-    });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setMsg(data?.error?.message || 'Error de login');
-      return;
+    try {
+      // /auth/login está EXCLUIDO del CSRF, así que aunque no exista cookie aún, funciona
+      await apiFetch('/api/v1/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password }),
+      });
+      setMsg('¡Login OK!');
+      await qc.invalidateQueries({ queryKey: ['me'] });
+    } catch (err: any) {
+      setMsg(err?.error?.message || 'Error de login');
     }
-    setMsg('¡Login OK!');
-    await qc.invalidateQueries({ queryKey: ['me'] });
   }
 
   return (

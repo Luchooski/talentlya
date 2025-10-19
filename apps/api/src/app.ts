@@ -15,12 +15,8 @@ import { employeeRoutes } from './modules/employee/employee.routes';
 
 export const app = Fastify({ logger: true });
 
-// Security headers
-await app.register(helmet, {
-  contentSecurityPolicy: false, // simplificamos para dev; en prod se puede configurar
-});
+await app.register(helmet, { contentSecurityPolicy: false });
 
-// CORS
 await app.register(cors, {
   origin: (origin, cb) => {
     if (!origin) return cb(null, true);
@@ -30,25 +26,33 @@ await app.register(cors, {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  // Opcional: si tu navegador hace preflight con este header, podés declararlo
+  allowedHeaders: ['Content-Type', 'x-csrf-token'],
 });
 
 await app.register(cookie);
 
-// Rate limit (anti fuerza bruta básica)
 await app.register(rateLimit, {
   max: env.RATE_LIMIT_MAX,
   timeWindow: `${env.RATE_LIMIT_TIME_WINDOW_MIN} minutes`,
-  allowList: [], // podés permitir IPs internas
 });
 
-// CSRF (double-submit) para mutaciones a nivel global
-app.addHook('preHandler', requireCsrf());
+// 👇 CSRF: EXCLUIMOS login/register para permitir el primer acceso
+app.addHook(
+  'preHandler',
+  requireCsrf({
+    skipPaths: [
+      '/api/v1/auth/login',
+      '/api/v1/auth/register',
+      // si querés, podés forzar CSRF en logout/refresh (yo lo dejo protegido)
+    ],
+  }),
+);
 
 // Rutas
 app.register(healthRoutes, { prefix: '/api/v1' });
 app.register(authRoutes,   { prefix: '/api/v1' });
 app.register(employeeRoutes, { prefix: '/api/v1' });
 
-// Middlewares globales
 registerNotFound(app);
 registerErrorHandler(app);

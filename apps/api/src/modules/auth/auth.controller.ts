@@ -4,10 +4,11 @@ import { nanoid } from 'nanoid';
 
 import { cookieOpts, ACCESS_TOKEN_NAME, REFRESH_TOKEN_NAME, accessTtlSec, refreshTtlSec, csrfCookieName } from '../../config/security';
 import { LoginInputSchema, RegisterInputSchema, MeOutputSchema, AuthUserSchema } from './auth.dto';
-import { createUser, issueTokens, validateUser } from './auth.service';
+import { createUser, issueTokens, validateUser, buildRefresh, signAccess } from './auth.service';
 import { User } from './auth.model';
 import { env } from '../../config/env';
 import { findOrCreateOrgByName } from '../org/org.service';
+import { createSession, findSessionByJti, revokeAllSessionsByUser, revokeFamily, revokeSessionByJti, rotateSession } from '../session/session.service';
 
 import argon2 from 'argon2';
 import { ChangePasswordInputSchema } from './auth.dto';
@@ -18,12 +19,15 @@ function setAuthCookies(reply: FastifyReply, tokens: { access: string; refresh: 
     .setCookie(ACCESS_TOKEN_NAME, tokens.access, { ...cookieOpts, maxAge: accessTtlSec })
     .setCookie(REFRESH_TOKEN_NAME, tokens.refresh, { ...cookieOpts, maxAge: refreshTtlSec });
 
-  // Set CSRF (NO httpOnly) para double-submit
-  reply.setCookie(csrfCookieName, nanoid(), {
-    ...cookieOpts,
-    httpOnly: false,
-    maxAge: refreshTtlSec,
-  });
+  // CSRF (no httpOnly) para double-submit
+  reply.setCookie(csrfCookieName, nanoid(), { ...cookieOpts, httpOnly: false, maxAge: refreshTtlSec });
+}
+
+function clientMeta(req: FastifyRequest) {
+  return {
+    ip: (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip,
+    userAgent: (req.headers['user-agent'] as string) || 'unknown',
+  };
 }
 
 export async function registerHandler(req: FastifyRequest, reply: FastifyReply) {
@@ -35,12 +39,19 @@ export async function registerHandler(req: FastifyRequest, reply: FastifyReply) 
 
   const org = await findOrCreateOrgByName(orgName);
   const user = await createUser(email, password, String(org._id));
-
   const safeUser = { _id: String(user._id), email: user.email, role: user.role, orgId: String(org._id) };
-  const tokens = issueTokens(safeUser);
 
-  setAuthCookies(reply, tokens);
+  const { access, refresh, jti, familyId, refreshExpiresAt } = issueTokens(safeUser);
+  await createSession({
+    userId: safeUser._id,
+    jti,
+    familyId,
+    refreshToken: refresh,
+    ...clientMeta(req),
+    expiresAt: refreshExpiresAt,
+  });
 
+  setAuthCookies(reply, { access, refresh });
   const out = MeOutputSchema.parse({ user: safeUser });
   return reply.status(201).send(out);
 }
@@ -57,12 +68,19 @@ export async function loginHandler(req: FastifyRequest, reply: FastifyReply) {
     req.log.warn({ email }, 'Login failed: invalid credentials or user not found');
     return reply.status(401).send({ error: { code: 'INVALID_CREDENTIALS', message: 'Credenciales inválidas' } });
   }
-
   const safeUser = { _id: String(user._id), email: user.email, role: user.role, orgId: user.orgId };
-  const tokens = issueTokens(safeUser);
 
-  setAuthCookies(reply, tokens);
+  const { access, refresh, jti, familyId, refreshExpiresAt } = issueTokens(safeUser);
+  await createSession({
+    userId: safeUser._id,
+    jti,
+    familyId,
+    refreshToken: refresh,
+    ...clientMeta(req),
+    expiresAt: refreshExpiresAt,
+  });
 
+  setAuthCookies(reply, { access, refresh });
   const out = MeOutputSchema.parse({ user: safeUser });
   return reply.send(out);
 }
@@ -73,28 +91,78 @@ export async function meHandler(req: FastifyRequest, reply: FastifyReply) {
   return reply.send(MeOutputSchema.parse({ user: parsed.data }));
 }
 
-export async function logoutHandler(_req: FastifyRequest, reply: FastifyReply) {
+export async function logoutHandler(req: FastifyRequest, reply: FastifyReply) {
+  // limpiar cookies siempre
   reply
     .clearCookie(ACCESS_TOKEN_NAME, cookieOpts)
     .clearCookie(REFRESH_TOKEN_NAME, cookieOpts)
     .clearCookie(csrfCookieName, { ...cookieOpts, httpOnly: false });
+
+  // intentamos revocar la sesión actual (si existe refresh cookie y es válida)
+  const refresh = req.cookies?.[REFRESH_TOKEN_NAME];
+  if (refresh) {
+    try {
+      const payload = jwt.verify(refresh, env.JWT_SECRET) as { sub: string; jti: string; fam: string };
+      await revokeSessionByJti(payload.jti);
+    } catch {
+      // token inválido/expirado: no pasa nada, ya limpiamos cookies
+    }
+  }
+
+  return reply.send({ ok: true });
+}
+
+export async function logoutAllHandler(req: FastifyRequest, reply: FastifyReply) {
+  const parsed = AuthUserSchema.safeParse(req.user);
+  if (!parsed.success) return reply.status(401).send({ error: { code: 'UNAUTHORIZED', message: 'No autenticado' } });
+  await revokeAllSessionsByUser(parsed.data._id);
+
+  reply
+    .clearCookie(ACCESS_TOKEN_NAME, cookieOpts)
+    .clearCookie(REFRESH_TOKEN_NAME, cookieOpts)
+    .clearCookie(csrfCookieName, { ...cookieOpts, httpOnly: false });
+
   return reply.send({ ok: true });
 }
 
 export async function refreshHandler(req: FastifyRequest, reply: FastifyReply) {
-  const refresh = req.cookies?.[REFRESH_TOKEN_NAME];
-  if (!refresh) return reply.status(401).send({ error: { code: 'UNAUTHORIZED', message: 'No hay refresh' } });
+  const cookieRefresh = req.cookies?.[REFRESH_TOKEN_NAME];
+  if (!cookieRefresh) return reply.status(401).send({ error: { code: 'UNAUTHORIZED', message: 'No hay refresh' } });
 
   try {
-    const payload = jwt.verify(refresh, env.JWT_SECRET) as { sub: string; jti: string; iat: number; exp: number };
+    const payload = jwt.verify(cookieRefresh, env.JWT_SECRET) as { sub: string; jti: string; fam: string; iat: number; exp: number };
     const user = await User.findById(payload.sub).lean();
     if (!user) return reply.status(401).send({ error: { code: 'UNAUTHORIZED', message: 'Usuario no encontrado' } });
 
-    const safeUser = { _id: String(user._id), email: user.email, role: user.role as 'admin' | 'user', orgId: user.orgId };
-    // Rotar: nuevo access y nuevo refresh (con jti distinta)
-    const tokens = issueTokens(safeUser);
+    // Verificamos que la sesión exista y no esté revocada (anti reuse)
+    const sess = await findSessionByJti(String(user._id), payload.jti);
+    if (!sess || sess.revokedAt) {
+      // REUSE DETECTED: revocamos toda la familia y forzamos logout
+      await revokeFamily(payload.fam);
+      reply
+        .clearCookie(ACCESS_TOKEN_NAME, cookieOpts)
+        .clearCookie(REFRESH_TOKEN_NAME, cookieOpts)
+        .clearCookie(csrfCookieName, { ...cookieOpts, httpOnly: false });
+      return reply.status(401).send({ error: { code: 'UNAUTHORIZED', message: 'Refresh reutilizado o inválido' } });
+    }
 
-    setAuthCookies(reply, tokens);
+    const safeUser = { _id: String(user._id), email: user.email, role: user.role as 'admin' | 'user', orgId: user.orgId };
+
+    // ROTAR: crear nuevo access y nuevo refresh dentro de la misma familia
+    const access = signAccess(safeUser);
+    const { token: newRefresh, jti: newJti, familyId, expiresAt } = buildRefresh(safeUser._id, payload.fam);
+
+    await rotateSession({
+      oldJti: payload.jti,
+      newJti,
+      newRefreshToken: newRefresh,
+      userId: safeUser._id,
+      familyId,
+      expiresAt,
+      ...clientMeta(req),
+    });
+
+    setAuthCookies(reply, { access, refresh: newRefresh });
 
     const out = MeOutputSchema.parse({ user: safeUser });
     return reply.send(out);
@@ -102,6 +170,27 @@ export async function refreshHandler(req: FastifyRequest, reply: FastifyReply) {
     return reply.status(401).send({ error: { code: 'UNAUTHORIZED', message: 'Refresh inválido' } });
   }
 }
+
+// (Opcional) endpoint para listar sesiones actuales del usuario
+export async function listMySessionsHandler(req: FastifyRequest, reply: FastifyReply) {
+  const parsed = AuthUserSchema.safeParse(req.user);
+  if (!parsed.success) return reply.status(401).send({ error: { code: 'UNAUTHORIZED', message: 'No autenticado' } });
+  // Sólo info básica
+  const { Session } = await import('../session/session.model');
+  const items = await Session.find({ userId: parsed.data._id }).sort({ createdAt: -1 }).lean();
+  const mapped = items.map((s) => ({
+    jti: s.jti,
+    familyId: s.familyId,
+    createdAt: s.createdAt,
+    expiresAt: s.expiresAt,
+    revokedAt: s.revokedAt ?? null,
+    replacedBy: s.replacedBy ?? null,
+    userAgent: s.userAgent ?? 'unknown',
+    ip: s.ip ?? 'unknown',
+  }));
+  return reply.send({ items: mapped });
+}
+
 export async function changePasswordHandler(req: FastifyRequest, reply: FastifyReply) {
   const parsedUser = AuthUserSchema.safeParse(req.user);
   if (!parsedUser.success) return reply.status(401).send({ error: { code: 'UNAUTHORIZED', message: 'No autenticado' } });

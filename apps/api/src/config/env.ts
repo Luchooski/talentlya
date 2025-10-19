@@ -20,12 +20,14 @@ const EnvSchema = z.object({
 
   COOKIE_DOMAIN: z.string().default('localhost'),
 
-  // Nuevas
-  RATE_LIMIT_MAX: z.coerce.number().int().positive().default(100), // req/ IP / 15min
+  RATE_LIMIT_MAX: z.coerce.number().int().positive().default(100),
   RATE_LIMIT_TIME_WINDOW_MIN: z.coerce.number().int().positive().default(15),
 
   CSRF_COOKIE_NAME: z.string().default('csrf_token'),
   CSRF_HEADER_NAME: z.string().default('x-csrf-token'),
+
+  // Sesiones (límite de dispositivos por usuario)
+  SESSIONS_MAX_PER_USER: z.coerce.number().int().positive().default(10),
 });
 
 export const env = EnvSchema.parse(process.env);

@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import LoginForm from './features/auth/LoginForm';
+import { apiFetch } from './lib/api';
 
 const API = (import.meta.env.VITE_API_URL as string) || 'http://localhost:4000';
 
@@ -16,10 +17,15 @@ export default function App() {
     retry: false,
   });
 
-  async function logout() {
-    await fetch(`${API}/api/v1/auth/logout`, { method: 'POST', credentials: 'include' });
+
+async function logout() {
+  try {
+    await apiFetch('/api/v1/auth/logout', { method: 'POST' }); // ← ahora manda x-csrf-token
     await refetch();
+  } catch (err) {
+    console.error('logout failed', err);
   }
+}
 
   return (
     <div className="min-h-screen w-screen items-center justify-center bg-gray-100 dark:bg-[#0f172a] text-gray-900 dark:text-gray-100 p-6">

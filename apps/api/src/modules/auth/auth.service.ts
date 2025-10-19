@@ -27,17 +27,17 @@ export function signAccess(user: SafeUser) {
   return jwt.sign(payload, env.JWT_SECRET, { expiresIn: accessTtlSec });
 }
 
-// Refresh rotativo con jti embebido (sin DB para MVP):
-// - En cada refresh se genera un jti nuevo y se invalida el anterior por tiempo (no reuse detection).
-// - (Futuro) Guardar jtis en Mongo/Redis para detectar reuse y revocar familia.
-export function signRefresh(userId: string) {
+export function buildRefresh(userId: string, familyId?: string) {
+  // jti nuevo cada emisión; familyId persiste a lo largo de las rotaciones
   const jti = nanoid();
-  return jwt.sign({ sub: userId, jti }, env.JWT_SECRET, { expiresIn: refreshTtlSec });
+  const fam = familyId ?? nanoid();
+  const token = jwt.sign({ sub: userId, jti, fam }, env.JWT_SECRET, { expiresIn: refreshTtlSec });
+  const expiresAt = new Date(Date.now() + refreshTtlSec * 1000);
+  return { token, jti, familyId: fam, expiresAt };
 }
 
 export function issueTokens(user: SafeUser) {
-  return {
-    access: signAccess(user),
-    refresh: signRefresh(user._id),
-  };
+  const access = signAccess(user);
+  const { token: refresh, jti, familyId, expiresAt } = buildRefresh(user._id);
+  return { access, refresh, jti, familyId, refreshExpiresAt: expiresAt };
 }
