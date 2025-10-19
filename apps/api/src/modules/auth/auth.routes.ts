@@ -5,24 +5,30 @@ import {
   meHandler,
   logoutHandler,
   refreshHandler,
-  changePasswordHandler, // si lo implementaste antes
+  changePasswordHandler,
   logoutAllHandler,
   listMySessionsHandler,
+  forgotPasswordHandler,
+  resetPasswordHandler,
+  sendVerifyEmailHandler,
+  verifyEmailHandler,
 } from './auth.controller';
 import { requireAuth } from '../../middlewares/auth';
 
 export async function authRoutes(app: FastifyInstance) {
+  // públicos
   app.post('/auth/register', registerHandler);
   app.post('/auth/login', loginHandler);
+  app.post('/auth/forgot-password', forgotPasswordHandler);
+  app.post('/auth/reset-password', resetPasswordHandler);
+  app.get('/auth/verify-email', verifyEmailHandler);
+
+  // CSRF protected + auth
   app.post('/auth/logout', logoutHandler);
   app.post('/auth/logout-all', { preHandler: [requireAuth()] }, logoutAllHandler);
   app.post('/auth/refresh', refreshHandler);
-
   app.get('/auth/me', { preHandler: [requireAuth()] }, meHandler);
   app.get('/auth/sessions', { preHandler: [requireAuth()] }, listMySessionsHandler);
-
-  // opcional
-  if (typeof changePasswordHandler === 'function') {
-    app.post('/auth/change-password', { preHandler: [requireAuth()] }, changePasswordHandler);
-  }
+  app.post('/auth/change-password', { preHandler: [requireAuth()] }, changePasswordHandler);
+  app.post('/auth/send-verify-email', { preHandler: [requireAuth()] }, sendVerifyEmailHandler);
 }

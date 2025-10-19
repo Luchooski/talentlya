@@ -44,7 +44,9 @@ app.addHook(
     skipPaths: [
       '/api/v1/auth/login',
       '/api/v1/auth/register',
-      // si querés, podés forzar CSRF en logout/refresh (yo lo dejo protegido)
+      '/api/v1/auth/forgot-password',
+      '/api/v1/auth/reset-password',
+      '/api/v1/auth/verify-email', // es GET con token en query
     ],
   }),
 );

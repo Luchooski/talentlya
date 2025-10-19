@@ -13,6 +13,7 @@ const EnvSchema = z.object({
   ),
 
   WEB_ORIGIN: z.string().url().default('http://localhost:5173'),
+  APP_ORIGIN: z.string().url().default('http://localhost:5173'), // para construir links en mails
 
   JWT_SECRET: z.string().min(12, 'JWT_SECRET debe tener al menos 12 caracteres'),
   ACCESS_TOKEN_TTL_MIN: z.coerce.number().int().positive().default(15),
@@ -26,8 +27,14 @@ const EnvSchema = z.object({
   CSRF_COOKIE_NAME: z.string().default('csrf_token'),
   CSRF_HEADER_NAME: z.string().default('x-csrf-token'),
 
-  // Sesiones (límite de dispositivos por usuario)
   SESSIONS_MAX_PER_USER: z.coerce.number().int().positive().default(10),
+
+  // Email (Mailtrap u otro SMTP)
+  MAIL_HOST: z.string().default('smtp.mailtrap.io'),
+  MAIL_PORT: z.coerce.number().int().positive().default(2525),
+  MAIL_USER: z.string().min(1, 'MAIL_USER requerido'),
+  MAIL_PASS: z.string().min(1, 'MAIL_PASS requerido'),
+  MAIL_FROM: z.string().email('MAIL_FROM debe ser un email válido'),
 });
 
 export const env = EnvSchema.parse(process.env);

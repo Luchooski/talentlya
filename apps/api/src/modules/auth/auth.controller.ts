@@ -5,7 +5,7 @@ import { nanoid } from 'nanoid';
 import { cookieOpts, ACCESS_TOKEN_NAME, REFRESH_TOKEN_NAME, accessTtlSec, refreshTtlSec, csrfCookieName } from '../../config/security';
 import { LoginInputSchema, RegisterInputSchema, MeOutputSchema, AuthUserSchema } from './auth.dto';
 import { createUser, issueTokens, validateUser, buildRefresh, signAccess } from './auth.service';
-import { User } from './auth.model';
+
 import { env } from '../../config/env';
 import { findOrCreateOrgByName } from '../org/org.service';
 import { createSession, findSessionByJti, revokeAllSessionsByUser, revokeFamily, revokeSessionByJti, rotateSession } from '../session/session.service';
@@ -13,6 +13,15 @@ import { createSession, findSessionByJti, revokeAllSessionsByUser, revokeFamily,
 import argon2 from 'argon2';
 import { ChangePasswordInputSchema } from './auth.dto';
 import { requireAuth } from '../../middlewares/auth';
+
+import {
+  ForgotPasswordInputSchema,
+  ResetPasswordInputSchema,
+  VerifyEmailInputSchema,
+} from './auth.dto';
+import { User } from './auth.model';
+import { verifyPurposeToken } from '../../lib/tokens';
+import { applyNewPassword, sendResetPassword, sendVerifyEmail } from './auth.service';
 
 function setAuthCookies(reply: FastifyReply, tokens: { access: string; refresh: string }) {
   reply
@@ -210,4 +219,67 @@ export async function changePasswordHandler(req: FastifyRequest, reply: FastifyR
   user.passwordHash = await argon2.hash(newPassword);
   await user.save();
   return reply.send({ ok: true });
+}
+// POST /auth/forgot-password  (PUBLIC, sin CSRF)
+export async function forgotPasswordHandler(req: FastifyRequest, reply: FastifyReply) {
+  const parse = ForgotPasswordInputSchema.safeParse(req.body);
+  if (!parse.success) return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: 'Datos inválidos', details: parse.error.issues } });
+
+  const { email } = parse.data;
+  await sendResetPassword(email);
+  return reply.send({ ok: true }); // No revelamos si existe o no
+}
+
+// POST /auth/reset-password (PUBLIC, sin CSRF)
+export async function resetPasswordHandler(req: FastifyRequest, reply: FastifyReply) {
+  const parse = ResetPasswordInputSchema.safeParse(req.body);
+  if (!parse.success) return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: 'Datos inválidos', details: parse.error.issues } });
+
+  const { token, newPassword } = parse.data;
+  try {
+    const payload = verifyPurposeToken(token, 'reset'); // { sub, jti, email, ... }
+    const user = await User.findById(payload.sub).lean();
+    if (!user || !user.resetJti || user.resetJti !== payload.jti) {
+      return reply.status(400).send({ error: { code: 'TOKEN_INVALID', message: 'Token inválido o usado' } });
+    }
+
+    await applyNewPassword(String(user._id), newPassword);
+    return reply.send({ ok: true });
+  } catch {
+    return reply.status(400).send({ error: { code: 'TOKEN_INVALID', message: 'Token inválido o expirado' } });
+  }
+}
+
+// POST /auth/send-verify-email (AUTENTICADO) → reenvía email
+export async function sendVerifyEmailHandler(req: FastifyRequest, reply: FastifyReply) {
+  const userId = (req.user as any)?._id as string | undefined;
+  const email = (req.user as any)?.email as string | undefined;
+  if (!userId || !email) return reply.status(401).send({ error: { code: 'UNAUTHORIZED', message: 'No autenticado' } });
+
+  await sendVerifyEmail(userId, email);
+  return reply.send({ ok: true });
+}
+
+// GET /auth/verify-email?token=... (PÚBLICO, sin CSRF; redirecciona a APP)
+export async function verifyEmailHandler(req: FastifyRequest, reply: FastifyReply) {
+  const token = (req.query as any)?.token as string | undefined;
+  if (!token) return reply.status(400).send({ error: { code: 'BAD_REQUEST', message: 'Falta token' } });
+
+  try {
+    const payload = verifyPurposeToken(token, 'verify'); // { sub, jti }
+    const user = await User.findById(payload.sub).lean();
+    if (!user || !user.verifyJti || user.verifyJti !== payload.jti) {
+      return reply.status(400).send({ error: { code: 'TOKEN_INVALID', message: 'Token inválido o usado' } });
+    }
+    await User.updateOne({ _id: payload.sub }, { $set: { emailVerifiedAt: new Date(), verifyJti: null } });
+
+    // Redirigimos a la app con estado
+    const url = new URL('/verified', env.APP_ORIGIN);
+    url.searchParams.set('status', 'ok');
+    return reply.redirect(url.toString());
+  } catch {
+    const url = new URL('/verified', env.APP_ORIGIN);
+    url.searchParams.set('status', 'error');
+    return reply.redirect(url.toString());
+  }
 }
