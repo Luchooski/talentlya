@@ -4,6 +4,8 @@ import cookie from '@fastify/cookie';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 
+import { candidateRoutes } from './modules/candidate/candidate.routes';
+
 import { env } from './config/env';
 import { registerErrorHandler } from './middlewares/error-handler';
 import { registerNotFound } from './middlewares/not-found';
@@ -46,7 +48,8 @@ app.addHook(
       '/api/v1/auth/register',
       '/api/v1/auth/forgot-password',
       '/api/v1/auth/reset-password',
-      '/api/v1/auth/verify-email', // es GET con token en query
+      '/api/v1/auth/verify-email',
+      '/api/v1/candidates/upload-cv',
     ],
   }),
 );
@@ -55,6 +58,9 @@ app.addHook(
 app.register(healthRoutes, { prefix: '/api/v1' });
 app.register(authRoutes,   { prefix: '/api/v1' });
 app.register(employeeRoutes, { prefix: '/api/v1' });
+
+// NUEVO: candidatos
+app.register(candidateRoutes, { prefix: '/api/v1/candidates' });
 
 registerNotFound(app);
 registerErrorHandler(app);
